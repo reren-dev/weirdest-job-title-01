@@ -26,6 +26,7 @@ characters, reads in one glance.
 
 import os
 import stat
+import tempfile
 
 TITLE = "Full-Time Apologizer to Angry Geese"
 
@@ -40,10 +41,27 @@ def main() -> None:
         f"entry is {len(title)} characters, over the {MAX_CHARS} limit"
     )
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
-    with open(OUTPUT_PATH, "w", encoding="utf-8", newline="\n") as f:
-        f.write(title)
-    # The grader collects outputs as another user: leave it readable.
-    os.chmod(OUTPUT_PATH, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    # Write atomically: a half-written entry.txt would fail the gate,
+    # so the bytes land in a temp file in the same directory first and
+    # only a complete file is moved into place.
+    fd, tmp_path = tempfile.mkstemp(
+        dir=os.path.dirname(OUTPUT_PATH), prefix=".entry-", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
+            f.write(title)
+            f.flush()
+            os.fsync(f.fileno())
+        # tempfile makes mode 0600; the grader collects outputs as
+        # another user, so leave it readable by everyone.
+        os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+        os.replace(tmp_path, OUTPUT_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     print(title)
 
 
